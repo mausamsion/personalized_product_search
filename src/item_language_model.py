@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import json
+import yaml
 import random
 import wandb
 from datetime import datetime
@@ -12,7 +13,6 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import train_test_split
 
 os.environ["WANDB_START_METHOD"] = "thread"
 
@@ -22,28 +22,10 @@ random.seed(seed)
 np.random.seed(seed)
 torch.random.seed = seed
 
-# global config
-config = {
-    'model_name': 'item_language_model',
-    'embedding_dim': 128,
-    'max_seq_length': 1024,
-    'batch_size': 128,
-    'lr': 0.001,
-    'epochs': 30,
-    'log_step': 100,
-    'save_embs_epoch': 5,
-    'num_workers': 8,
-    'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-}
-logging.info(f"Using device: {config['device']}")
-
-# initialize wandb logging
-wb = wandb.init(
-    project='transformer_pps',
-    name='run_1',
-    id='run_1',
-    config=config
-)
+# read config
+with open('config.yaml', 'r') as f:
+    config = yaml.load(f, Loader=yaml.SafeLoader)
+config['device'] = eval(config['device'])
 
 class ItemWordsDataset(Dataset):
     def __init__(self, max_seq_length):
@@ -90,8 +72,8 @@ class ItemWordsDataset(Dataset):
         with open('data/token_vocab.json', 'w') as f:
             json.dump(self.token_to_idx, f)
         # log information
-        logging.info(f'Total items: {self.num_items}')
-        logging.info(f'Total tokens: {self.vocab_size}')
+        # logging.info(f'Total items: {self.num_items}')
+        # logging.info(f'Total tokens: {self.vocab_size}')
         
     def __len__(self):
         return len(self.df)
@@ -128,10 +110,6 @@ class ItemLanguageModel(nn.Module):
         super().__init__()
         self.word_embeddings = nn.Embedding(vocab_size, embedding_dim)
         self.item_embeddings = nn.Embedding(num_items, embedding_dim)
-        logging.info(
-            f'Item embeddings shape: {self.item_embeddings.weight.shape}')
-        logging.info(
-            f'Word embeddings shape: {self.word_embeddings.weight.shape}')
         
     def forward(self, item_ids, review_words, mask):
         # initialize item embeddings: (batch_size, emb_dim)
@@ -183,14 +161,14 @@ def train_item_language_model(rundir):
     # Training setup
     optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'])
     model.to(config['device'])
-    wb.watch(model)
+    wandb.watch(model)
     
     # Training loop
     global_step = 0
     for epoch in range(config['epochs']):
         total_loss = 0
-        print(f'Epoch: {epoch+1}')
-        for batch in tqdm(dataloader):
+        # print(f'Epoch: {epoch+1}')
+        for batch in dataloader:
             optimizer.zero_grad()
             # ---
             item_indices = batch['item_idx'].to(config['device'])
@@ -202,21 +180,23 @@ def train_item_language_model(rundir):
             optimizer.step()
             # ---
             total_loss += loss.item()
-            if global_step%config['log_step'] == 0:
-                logging.info(f"epoch {epoch+1}, " +\
-                             f"global step {global_step}, " +\
-                             f"loss = {loss:.5f}")
+            # if global_step%config['log_step'] == 0:
+            #     logging.info(f"epoch {epoch+1}, " +\
+            #                  f"global step {global_step}, " +\
+            #                  f"loss = {loss:.5f}")
             global_step += 1
-            wb.log(data={'train_loss': loss}, 
+            wandb.log({'train_loss_per_step': loss}, 
                       step=global_step)
         
         # torch.cuda.empty_cache()
-        logging.info(f"--- END - epoch {epoch+1}/{config['epochs']}, " +\
-                     f"avg. loss = {total_loss/len(dataloader):.5f}")
+        # logging.info(f"--- END - epoch {epoch+1}/{config['epochs']}, " +\
+        #              f"avg. loss = {total_loss/len(dataloader):.5f}")
+        wandb.log({'avg_train_loss_per_epoch': total_loss/len(dataloader)}, 
+                  step=epoch+1)
+        
         # Save embeddings with original mappings
         if (epoch+1)%config['save_embs_epoch'] == 0:
             save_embeddings(model, dataset, rundir, epoch+1)
-    wandb.finish()
 
 
 if __name__ == "__main__":
@@ -224,15 +204,26 @@ if __name__ == "__main__":
     model_name = 'itemLM'
     rundir = f"{logdir}/{model_name}_" +\
              f"{datetime.now().strftime(format='%Y-%m-%d_%H-%M-%S')}"
+    # create log directory
     if not os.path.exists(rundir):
         os.makedirs(rundir)
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        filename=f'{rundir}/logs'
+    # setup logging
+    # logging.basicConfig(
+    #     level=logging.INFO,
+    #     format="%(asctime)s %(levelname)s %(message)s",
+    #     datefmt="%Y-%m-%d %H:%M:%S",
+    #     filename=f'{rundir}/logs', 
+    #     force=False
+    # )
+    # initialize wandb logging
+    wandb.init(
+        project='test',
+        name='run_1',
+        id='run_1',
+        config=config
     )
     train_item_language_model(rundir)
+    wandb.finish()
 
 
 """
