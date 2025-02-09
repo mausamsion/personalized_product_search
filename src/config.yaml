@@ -1,7 +1,7 @@
 model_name: pps_model
 # model related
 embedding_dim: 128
-max_seq_length: 1024
+max_input_length: 128
 num_layers: 2
 num_heads: 4
 # training related
