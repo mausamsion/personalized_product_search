@@ -54,7 +54,7 @@ class TEM(nn.Module):
         self.d_model = config['embedding_dim']
         # Word embeddings (shared between query and item language model)
         self.word_embeddings = nn.Embedding(vocab_size, config['embedding_dim'])
-        # Query representation components (Eq. 2)
+        # Query representation components
         self.query_proj = nn.Linear(config['embedding_dim'], 
                                     config['embedding_dim']) 
         # Item embeddings
@@ -71,7 +71,7 @@ class TEM(nn.Module):
                 batch_first=True
             ), 
             num_layers=config['num_layers'])
-        # Item language model head (shares word embeddings)
+        # Item language model head
         self.item_lm_head = nn.Linear(config['embedding_dim'], vocab_size, bias=False)
         self.item_lm_head.weight = self.word_embeddings.weight  # Tie weights
 
@@ -86,36 +86,27 @@ class TEM(nn.Module):
         """
         
         # --- Query Representation - Embed query words and average
-        # (batch, query_len, d_model)
-        query_emb = self.word_embeddings(query_words)
-        # (batch, d_model)
-        query_avg = query_emb.mean(dim=1)
-        # (batch, d_model)
-        query_repr = torch.tanh(self.query_proj(query_avg))
+        query_emb = self.word_embeddings(query_words).mean(dim=1)
+        query_trans = torch.tanh(self.query_proj(query_emb))
         
         # --- Historical Item Embeddings 
-        # (batch, history_len, d_model)
         history_emb = self.item_embeddings(history_items)
         
         # --- Query and Items Sequence - 
-        # Add positional embeddings to the sequence [query, item1, item2, ...]
-        # (batch, seq_len, d_model)
-        seq = torch.cat([query_repr.unsqueeze(1), history_emb], dim=1)
+        seq = torch.cat([query_trans.unsqueeze(1), history_emb], dim=1)
         seq_len = seq.size(1)
+        
         # Positional embeddings (positions 0, 1, ..., seq_len-1)
         positions = torch.arange(
             seq_len, device=query_words.device).expand(
                 config['batch_size'], seq_len)
-        # (batch, seq_len, d_model)
+        
         pos_emb = self.pos_embeddings(positions)
         # add positional embeddings
         seq = seq + pos_emb
         
         # --- Transformer output 
-        # (seq_len, batch, d_model)
         transformer_output = self.transformer(seq)
-        # Get the query's output (first token)
-        # (batch, d_model)
         m_qu = transformer_output[0] 
         return m_qu
     
