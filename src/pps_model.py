@@ -72,7 +72,9 @@ class TEM(nn.Module):
             ), 
             num_layers=config['num_layers'])
         # Item language model head
-        self.item_lm_head = nn.Linear(config['embedding_dim'], vocab_size, bias=False)
+        self.item_lm_head = nn.Linear(config['embedding_dim'], 
+                                      vocab_size, 
+                                      bias=False)
         self.item_lm_head.weight = self.word_embeddings.weight  # Tie weights
 
     def forward(self, query_words, history_items):
@@ -121,8 +123,7 @@ class TEM(nn.Module):
         losses = []
         # Calculate loss for each item and its review words, in a batch
         for i in range(batch_size):
-            word_embs = self.word_embeddings.weight
-            logits = torch.matmul(item_embs[i], word_embs)
+            logits = self.item_lm_head(item_embs[i])
             losses.append(F.cross_entropy(logits, words[i]))
         # Return mean of all item losses
         return torch.mean(losses)
